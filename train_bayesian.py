@@ -9,6 +9,8 @@ import numpy as np
 from data_loader import get_cifar10_dataloader
 from models import BayesianResNet18
 
+from blitz.modules import BayesianConv2d, BayesianLinear
+
 def evaluate_bayesian_model(model, data_loader, device, num_samples=10):
     """
     Evaluates a Bayesian model by averaging over multiple forward passes.
@@ -102,11 +104,14 @@ def train_bayesian_model(
             # Forward pass
             outputs = model(inputs)
             
-            # The loss for variational inference is Variational Free Energy
-            nll_loss = criterion(outputs, labels)
-            kl_loss = model.log_variational_posterior - model.log_prior
+            # Calculate the KL-Divergence by summing over all Bayesian layers
+            kl_loss = 0.0
+            for module in model.modules():
+                if isinstance(module, (BayesianConv2d, BayesianLinear)):
+                    kl_loss += module.log_variational_posterior - module.log_prior
 
-            kl_scaling_factor = 1.0 / len(train_loader.dataset)
+            nll_loss = criterion(outputs, labels)
+            kl_scaling_factor = 1.0 / len(train_loader.dataset)  # Scale KL loss by batch size
             loss = nll_loss + kl_scaling_factor * kl_loss
 
             loss.backward()
@@ -146,3 +151,53 @@ def train_bayesian_model(
 
     print("Bayesian training complete.")
     writer.close()
+
+
+if __name__ == '__main__':
+    print("Starting Bayesian ResNet-18 training script...")
+
+    # Define hyperparameters
+    BATCH_SIZE = 128
+    NUM_EPOCHS = 100
+    LEARNING_RATE = 0.1
+    WEIGHT_DECAY = 5e-4
+    MOMENTUM = 0.9
+
+    # Get DataLoaders
+    train_loader, val_loader, test_loader = get_cifar10_dataloader(
+        batch_size=BATCH_SIZE, validation_split=0.1, random_seed=42
+    )
+
+    # Instantiate the Bayesian model
+    bayesian_model = BayesianResNet18(num_classes=10)
+
+    # Train the model
+    train_bayesian_model(
+        model=bayesian_model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        num_epochs=NUM_EPOCHS,
+        learning_rate=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
+        momentum=MOMENTUM,
+        log_dir='./runs/bayesian_resnet18',
+        model_save_path='./models/bayesian_resnet18_best.pth'
+    )
+
+    # 4. Load the best model and evaluate on the test set
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    final_bayesian_model = BayesianResNet18(num_classes=10)
+    final_bayesian_model.to(device)
+
+    model_path = './models/bayesian_resnet18_best.pth'
+    if os.path.exists(model_path):
+        final_bayesian_model.load_state_dict(torch.load(model_path, map_location=device))
+        print(f"\nLoaded best Bayesian model from {model_path} for final testing.")
+        
+        test_loss, test_accuracy = evaluate_bayesian_model(final_bayesian_model, test_loader, device, num_samples=50)
+        print(f"\nFinal Test Loss (averaged over 50 samples): {test_loss:.4f}, Final Test Accuracy: {test_accuracy:.4f}")
+    else:
+        print(f"Error: No model found at {model_path}. Cannot perform final test evaluation.")
+
+    print("Bayesian training script finished.")
