@@ -1,0 +1,21 @@
+# Ignore virtual environment
+BCNN/
+
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+*.so
+
+# Ignore data folder
+data/
+
+# Ignore model directory (but keep models.py)
+models/
+!models.py
+
+# Ignore experiment logs
+runs/
+
+# Optional: ignore hidden files
+.DS_Store
+.env
